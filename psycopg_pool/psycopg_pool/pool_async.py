@@ -263,6 +263,9 @@ class AsyncConnectionPool(Generic[ACT], BasePool):
             conn = await self._getconn_unchecked(deadline - monotonic())
             try:
                 await self._check_connection(conn)
+            except asyncio.CancelledError:
+                await self._putconn(conn, from_getconn=True)
+                raise
             except CLIENT_EXCEPTIONS:
                 await self._putconn(conn, from_getconn=True)
             else:

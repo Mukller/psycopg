@@ -1324,3 +1324,36 @@ async def test_get_config_raise_exception(dsn, caplog):
     assert reconnection_warnings, "Expected reconnection attempt logs"
     # Make sure that we saw not too many (backoff works)
     assert len(reconnection_warnings) < 5, "Too many attempts (likely busyloop)"
+
+
+@skip_sync
+async def test_wait_for_bounds_connection_acquisition(dsn):
+    """
+    Test that asyncio.wait_for bounds connection acquisition time.
+
+    Regression test for issue where CancelledError was absorbed by
+    _getconn_with_check_loop, making asyncio.wait_for ineffective.
+    """
+    import asyncio
+
+    async with pool.AsyncConnectionPool(
+        dsn,
+        min_size=0,
+        max_size=1,
+        open=False,
+    ) as p:
+        await p.open()
+
+        # Hold the only connection
+        async with p.connection():
+            # This should time out after 1 second.
+            # Before the fix it ran for up to pool timeout (default 30s).
+            try:
+                async with asyncio.wait_for(p.getconn(), timeout=1.0):
+                    pass
+            except TimeoutError:
+                pass  # Expected
+            except asyncio.CancelledError:
+                pass  # Also acceptable - wait_for may raise CancelledError
+            else:
+                pytest.fail("Expected TimeoutError or CancelledError")
